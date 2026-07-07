@@ -57,3 +57,46 @@ export async function listHistoricoByAluno(alunoId: string): Promise<HistoricoNi
 
   return data ?? [];
 }
+
+export async function getAvaliacaoByAlunoAndSondagem(
+  alunoId: string,
+  sondagemId: string,
+): Promise<Avaliacao | null> {
+  const { data, error } = await supabase
+    .from('avaliacoes')
+    .select('*')
+    .eq('aluno_id', alunoId)
+    .eq('sondagem_id', sondagemId)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  return data;
+}
+
+export async function ensureAvaliacaoBasica(
+  alunoId: string,
+  sondagemId: string,
+): Promise<Avaliacao> {
+  const existing = await getAvaliacaoByAlunoAndSondagem(alunoId, sondagemId);
+  if (existing) {
+    return existing;
+  }
+
+  return createAvaliacao({
+    aluno_id: alunoId,
+    sondagem_id: sondagemId,
+    audio_url: null,
+    transcricao: null,
+    precisao: null,
+    omissoes: null,
+    substituicoes: null,
+    fluencia: null,
+    confianca_ia: null,
+    nivel_sugerido: null,
+    nivel_final: null,
+    observacao_professor: null,
+  });
+}
