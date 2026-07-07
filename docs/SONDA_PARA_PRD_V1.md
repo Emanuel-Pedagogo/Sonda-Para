@@ -1,8 +1,8 @@
-# SONDA PARÁ – PRD V1.0
+# SONDA LEITURA – PRD V1.0
 
 ## 1. Visão Geral
 
-O Sonda Pará é uma plataforma digital de avaliação diagnóstica da leitura destinada a professores e coordenadores pedagógicos das redes públicas de ensino.
+O Sonda Leitura é uma plataforma digital de avaliação diagnóstica da leitura destinada a professores e coordenadores pedagógicos das redes públicas de ensino.
 
 O sistema utilizará Inteligência Artificial para analisar leituras realizadas pelos estudantes e sugerir automaticamente o nível de leitura, mantendo a validação final sob responsabilidade do professor.
 

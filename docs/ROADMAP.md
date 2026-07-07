@@ -1,8 +1,8 @@
-# ROADMAP - SONDA PARÁ
+# ROADMAP - SONDA LEITURA
 
 ## Visão Geral
 
-O desenvolvimento do Sonda Pará será dividido em fases incrementais.
+O desenvolvimento do Sonda Leitura será dividido em fases incrementais.
 
 Cada fase deve gerar uma versão funcional do sistema.
 
@@ -381,7 +381,7 @@ Ecossistema Alfabetiza+
 
 ├── Sistema de Gestão Pedagógica
 ├── Karaokê da Leitura
-├── Sonda Pará
+├── Sonda Leitura
 └── Painel de Alfabetização
 
 Todos compartilhando:

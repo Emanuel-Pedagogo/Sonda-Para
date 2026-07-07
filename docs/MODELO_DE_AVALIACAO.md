@@ -1,8 +1,8 @@
-# MODELO DE AVALIAÇÃO - SONDA PARÁ
+# MODELO DE AVALIAÇÃO - SONDA LEITURA
 
 ## 1. Objetivo
 
-Definir os critérios pedagógicos utilizados pelo sistema Sonda Pará para análise automática das leituras realizadas pelos estudantes.
+Definir os critérios pedagógicos utilizados pelo sistema Sonda Leitura para análise automática das leituras realizadas pelos estudantes.
 
 A Inteligência Artificial tem função de apoio à avaliação.
 

@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "Sonda Pará",
-    "slug": "sonda-para",
+    "name": "Sonda Leitura",
+    "slug": "sonda-leitura",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",

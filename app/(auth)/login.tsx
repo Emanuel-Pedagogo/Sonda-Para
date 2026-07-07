@@ -30,7 +30,7 @@ export default function LoginScreen() {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Sonda Pará</Text>
+      <Text style={styles.title}>Sonda Leitura</Text>
       <Text style={styles.subtitle}>Avaliação diagnóstica da leitura</Text>
 
       <RNView style={styles.form}>

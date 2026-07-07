@@ -1,4 +1,4 @@
-# PROMPTS IA - SONDA PARÁ
+# PROMPTS IA - SONDA LEITURA
 
 ## Objetivo
 

@@ -17,7 +17,7 @@ export default function HomeScreen() {
   return (
     <View style={styles.container}>
       <ScreenPlaceholder
-        title="Sonda Pará"
+        title="Sonda Leitura"
         description="Plataforma de avaliação diagnóstica da leitura para professores e coordenadores pedagógicos."
       />
 

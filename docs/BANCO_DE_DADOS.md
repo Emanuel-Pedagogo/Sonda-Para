@@ -1,8 +1,8 @@
-# BANCO DE DADOS - SONDA PARÁ
+# BANCO DE DADOS - SONDA LEITURA
 
 ## Objetivo
 
-Definir a estrutura de dados do sistema Sonda Pará utilizando Supabase PostgreSQL.
+Definir a estrutura de dados do sistema Sonda Leitura utilizando Supabase PostgreSQL.
 
 ---
 
