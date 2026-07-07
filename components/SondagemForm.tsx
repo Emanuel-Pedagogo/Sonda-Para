@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -8,6 +8,7 @@ import {
   View as RNView,
 } from 'react-native';
 
+import { KeyboardAwareScrollView } from '@/components/KeyboardAwareScrollView';
 import { Text } from '@/components/Themed';
 import type { SondagemPayload } from '@/src/services/sondagens/sondagens.service';
 import { normalizeOptionalText, parseOptionalInt } from '@/src/utils/sondagens';
@@ -28,6 +29,9 @@ const emptyValues: SondagemPayload = {
 };
 
 export function SondagemForm({ initialValues, submitLabel, onSubmit }: SondagemFormProps) {
+  const scrollRef = useRef<ScrollView>(null);
+  const fieldOffsets = useRef<Record<string, number>>({});
+
   const [titulo, setTitulo] = useState(initialValues?.titulo ?? emptyValues.titulo);
   const [mes, setMes] = useState(initialValues?.mes != null ? String(initialValues.mes) : '');
   const [ano, setAno] = useState(initialValues?.ano != null ? String(initialValues.ano) : '');
@@ -36,6 +40,17 @@ export function SondagemForm({ initialValues, submitLabel, onSubmit }: SondagemF
   const [texto, setTexto] = useState(initialValues?.texto ?? '');
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  function scrollToField(fieldKey: string) {
+    const y = fieldOffsets.current[fieldKey];
+    if (y == null) {
+      return;
+    }
+
+    requestAnimationFrame(() => {
+      scrollRef.current?.scrollTo({ y: Math.max(0, y - 24), animated: true });
+    });
+  }
 
   async function handleSubmit() {
     if (!titulo.trim()) {
@@ -76,17 +91,33 @@ export function SondagemForm({ initialValues, submitLabel, onSubmit }: SondagemF
   }
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <Text style={styles.label}>Título</Text>
-      <TextInput
-        placeholder="Ex.: Sondagem Setembro 2026"
-        style={styles.input}
-        value={titulo}
-        onChangeText={setTitulo}
-      />
+    <KeyboardAwareScrollView
+      ref={scrollRef}
+      contentContainerStyle={styles.container}
+      keyboardVerticalOffset={88}
+    >
+      <RNView
+        onLayout={(event) => {
+          fieldOffsets.current.titulo = event.nativeEvent.layout.y;
+        }}
+      >
+        <Text style={styles.label}>Título</Text>
+        <TextInput
+          placeholder="Ex.: Sondagem Setembro 2026"
+          style={styles.input}
+          value={titulo}
+          onChangeText={setTitulo}
+          onFocus={() => scrollToField('titulo')}
+        />
+      </RNView>
 
       <RNView style={styles.row}>
-        <RNView style={styles.halfField}>
+        <RNView
+          style={styles.halfField}
+          onLayout={(event) => {
+            fieldOffsets.current.mes = event.nativeEvent.layout.y;
+          }}
+        >
           <Text style={styles.label}>Mês (1-12)</Text>
           <TextInput
             keyboardType="number-pad"
@@ -94,9 +125,15 @@ export function SondagemForm({ initialValues, submitLabel, onSubmit }: SondagemF
             style={styles.input}
             value={mes}
             onChangeText={setMes}
+            onFocus={() => scrollToField('mes')}
           />
         </RNView>
-        <RNView style={styles.halfField}>
+        <RNView
+          style={styles.halfField}
+          onLayout={(event) => {
+            fieldOffsets.current.ano = event.nativeEvent.layout.y;
+          }}
+        >
           <Text style={styles.label}>Ano</Text>
           <TextInput
             keyboardType="number-pad"
@@ -104,37 +141,59 @@ export function SondagemForm({ initialValues, submitLabel, onSubmit }: SondagemF
             style={styles.input}
             value={ano}
             onChangeText={setAno}
+            onFocus={() => scrollToField('ano')}
           />
         </RNView>
       </RNView>
 
-      <Text style={styles.label}>Palavras</Text>
-      <Text style={styles.hint}>Uma palavra por linha. Ex.: CASA, BOLA, MALA</Text>
-      <TextInput
-        multiline
-        placeholder={'CASA\nBOLA\nMALA\nPATO'}
-        style={[styles.input, styles.textArea]}
-        value={palavras}
-        onChangeText={setPalavras}
-      />
+      <RNView
+        onLayout={(event) => {
+          fieldOffsets.current.palavras = event.nativeEvent.layout.y;
+        }}
+      >
+        <Text style={styles.label}>Palavras</Text>
+        <Text style={styles.hint}>Uma palavra por linha. Ex.: CASA, BOLA, MALA</Text>
+        <TextInput
+          multiline
+          placeholder={'CASA\nBOLA\nMALA\nPATO'}
+          style={[styles.input, styles.textArea]}
+          value={palavras}
+          onChangeText={setPalavras}
+          onFocus={() => scrollToField('palavras')}
+        />
+      </RNView>
 
-      <Text style={styles.label}>Frase</Text>
-      <TextInput
-        multiline
-        placeholder='Ex.: "O gato correu para casa."'
-        style={[styles.input, styles.textAreaSmall]}
-        value={frase}
-        onChangeText={setFrase}
-      />
+      <RNView
+        onLayout={(event) => {
+          fieldOffsets.current.frase = event.nativeEvent.layout.y;
+        }}
+      >
+        <Text style={styles.label}>Frase</Text>
+        <TextInput
+          multiline
+          placeholder='Ex.: "O gato correu para casa."'
+          style={[styles.input, styles.textAreaSmall]}
+          value={frase}
+          onChangeText={setFrase}
+          onFocus={() => scrollToField('frase')}
+        />
+      </RNView>
 
-      <Text style={styles.label}>Texto</Text>
-      <TextInput
-        multiline
-        placeholder="Texto simples utilizado na sondagem do período."
-        style={[styles.input, styles.textArea]}
-        value={texto}
-        onChangeText={setTexto}
-      />
+      <RNView
+        onLayout={(event) => {
+          fieldOffsets.current.texto = event.nativeEvent.layout.y;
+        }}
+      >
+        <Text style={styles.label}>Texto</Text>
+        <TextInput
+          multiline
+          placeholder="Texto simples utilizado na sondagem do período."
+          style={[styles.input, styles.textArea]}
+          value={texto}
+          onChangeText={setTexto}
+          onFocus={() => scrollToField('texto')}
+        />
+      </RNView>
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
@@ -149,7 +208,7 @@ export function SondagemForm({ initialValues, submitLabel, onSubmit }: SondagemF
           <Text style={styles.buttonText}>{submitLabel}</Text>
         )}
       </Pressable>
-    </ScrollView>
+    </KeyboardAwareScrollView>
   );
 }
 

@@ -73,9 +73,7 @@ export default function SondagensScreen() {
         renderItem={({ item }) => (
           <Pressable
             style={styles.card}
-            onPress={() =>
-              router.push({ pathname: '/sondagens/[id]', params: { id: item.id } })
-            }
+            onPress={() => router.push({ pathname: '/sondagens/[id]', params: { id: item.id } })}
           >
             <Text style={styles.cardTitle}>{item.titulo}</Text>
             <Text style={styles.cardText}>{formatSondagemPeriodo(item.mes, item.ano)}</Text>
