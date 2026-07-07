@@ -53,7 +53,7 @@ export default function EditarSondagemScreen() {
       submitLabel="Salvar alterações"
       onSubmit={async (payload) => {
         await updateSondagem(sondagem.id, payload);
-        router.replace({ pathname: '/sondagens/[id]/index', params: { id: sondagem.id } });
+        router.replace({ pathname: '/sondagens/[id]', params: { id: sondagem.id } });
       }}
     />
   );

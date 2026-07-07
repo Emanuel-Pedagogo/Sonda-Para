@@ -9,7 +9,7 @@ export default function CriarSondagemScreen() {
       submitLabel="Criar sondagem"
       onSubmit={async (payload) => {
         const sondagem = await createSondagem(payload);
-        router.replace({ pathname: '/sondagens/[id]/index', params: { id: sondagem.id } });
+        router.replace({ pathname: '/sondagens/[id]', params: { id: sondagem.id } });
       }}
     />
   );

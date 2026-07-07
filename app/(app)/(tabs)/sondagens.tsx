@@ -74,7 +74,7 @@ export default function SondagensScreen() {
           <Pressable
             style={styles.card}
             onPress={() =>
-              router.push({ pathname: '/sondagens/[id]/index', params: { id: item.id } })
+              router.push({ pathname: '/sondagens/[id]', params: { id: item.id } })
             }
           >
             <Text style={styles.cardTitle}>{item.titulo}</Text>
