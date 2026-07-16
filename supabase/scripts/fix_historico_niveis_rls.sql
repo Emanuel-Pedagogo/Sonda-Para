@@ -1,7 +1,15 @@
--- Fase 4: Avaliações — professores podem registrar avaliações dos alunos da escola
+-- Corrige/reaplica RLS de escrita e índice único do histórico (seguro para rodar mais de uma vez)
 
-create policy "Usuarios criam avaliacoes dos alunos da escola"
-  on public.avaliacoes
+alter table public.historico_niveis enable row level security;
+
+create unique index if not exists idx_historico_niveis_avaliacao
+  on public.historico_niveis(avaliacao_id);
+
+drop policy if exists "Usuarios criam historico dos alunos da escola" on public.historico_niveis;
+drop policy if exists "Usuarios atualizam historico dos alunos da escola" on public.historico_niveis;
+
+create policy "Usuarios criam historico dos alunos da escola"
+  on public.historico_niveis
   for insert
   to authenticated
   with check (
@@ -15,8 +23,8 @@ create policy "Usuarios criam avaliacoes dos alunos da escola"
     )
   );
 
-create policy "Usuarios atualizam avaliacoes dos alunos da escola"
-  on public.avaliacoes
+create policy "Usuarios atualizam historico dos alunos da escola"
+  on public.historico_niveis
   for update
   to authenticated
   using (
@@ -25,7 +33,7 @@ create policy "Usuarios atualizam avaliacoes dos alunos da escola"
       from public.alunos
       join public.turmas on turmas.id = alunos.turma_id
       join public.usuarios on usuarios.escola_id = turmas.escola_id
-      where alunos.id = avaliacoes.aluno_id
+      where alunos.id = historico_niveis.aluno_id
         and usuarios.id = auth.uid()
     )
   )
@@ -39,6 +47,3 @@ create policy "Usuarios atualizam avaliacoes dos alunos da escola"
         and usuarios.id = auth.uid()
     )
   );
-
-create unique index if not exists idx_avaliacoes_aluno_sondagem
-  on public.avaliacoes(aluno_id, sondagem_id);

@@ -4,33 +4,46 @@ import { Platform } from 'react-native';
 import type { AvaliacaoSessao } from '@/src/types/avaliacao-sessao';
 
 function sessionKey(turmaId: string, sondagemId: string): string {
-  return `avaliacao_sessao:${turmaId}:${sondagemId}`;
+  // SecureStore aceita apenas letras, números, ".", "-" e "_".
+  return `avaliacao_sessao_${turmaId}_${sondagemId}`;
 }
 
 async function getItem(key: string): Promise<string | null> {
-  if (Platform.OS === 'web') {
-    return globalThis.localStorage?.getItem(key) ?? null;
-  }
+  try {
+    if (Platform.OS === 'web') {
+      return globalThis.localStorage?.getItem(key) ?? null;
+    }
 
-  return SecureStore.getItemAsync(key);
+    return await SecureStore.getItemAsync(key);
+  } catch {
+    return null;
+  }
 }
 
 async function setItem(key: string, value: string): Promise<void> {
-  if (Platform.OS === 'web') {
-    globalThis.localStorage?.setItem(key, value);
-    return;
-  }
+  try {
+    if (Platform.OS === 'web') {
+      globalThis.localStorage?.setItem(key, value);
+      return;
+    }
 
-  await SecureStore.setItemAsync(key, value);
+    await SecureStore.setItemAsync(key, value);
+  } catch {
+    // Sessão local é opcional; não bloqueia o fluxo de avaliação.
+  }
 }
 
 async function removeItem(key: string): Promise<void> {
-  if (Platform.OS === 'web') {
-    globalThis.localStorage?.removeItem(key);
-    return;
-  }
+  try {
+    if (Platform.OS === 'web') {
+      globalThis.localStorage?.removeItem(key);
+      return;
+    }
 
-  await SecureStore.deleteItemAsync(key);
+    await SecureStore.deleteItemAsync(key);
+  } catch {
+    // Ignora falha ao limpar sessão local.
+  }
 }
 
 export async function loadAvaliacaoSessao(

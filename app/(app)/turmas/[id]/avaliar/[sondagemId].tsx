@@ -1,7 +1,15 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, StyleSheet, View as RNView } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  Pressable,
+  StyleSheet,
+  TextInput,
+  View as RNView,
+} from 'react-native';
 
+import { AudioRecorderPanel } from '@/components/AudioRecorderPanel';
 import { KeyboardAwareScrollView } from '@/components/KeyboardAwareScrollView';
 import { Text, View } from '@/components/Themed';
 import {
@@ -9,13 +17,24 @@ import {
   loadAvaliacaoSessao,
   saveAvaliacaoSessao,
 } from '@/src/services/avaliacao-sessao/avaliacao-sessao.storage';
+import {
+  salvarAudioAvaliacao,
+  type PendingAudioRecording,
+} from '@/src/services/avaliacao-audio/avaliacao-audio.service';
 import { listAlunosByTurma } from '@/src/services/alunos/alunos.service';
-import { ensureAvaliacaoBasica } from '@/src/services/avaliacoes/avaliacoes.service';
+import {
+  ensureAvaliacaoBasica,
+  getAvaliacaoByAlunoAndSondagem,
+  validarAvaliacao,
+} from '@/src/services/avaliacoes/avaliacoes.service';
+import { analisarAvaliacaoComIA } from '@/src/services/ia/avaliacao-ia.service';
 import { getSondagem } from '@/src/services/sondagens/sondagens.service';
 import { getTurma } from '@/src/services/turmas/turmas.service';
+import { getNiveisLeituraList, type NivelLeitura } from '@/src/constants/niveis-leitura';
 import type { AvaliacaoSessao } from '@/src/types/avaliacao-sessao';
-import type { Aluno, Sondagem, Turma } from '@/src/types/database';
+import type { Aluno, Avaliacao, Sondagem, Turma } from '@/src/types/database';
 import { formatSondagemPeriodo } from '@/src/utils/sondagens';
+import { getSupabaseErrorDetails, translateSupabaseError } from '@/src/utils/supabase-errors';
 
 function SondagemSection({ title, content }: { title: string; content: string | null }) {
   return (
@@ -26,8 +45,76 @@ function SondagemSection({ title, content }: { title: string; content: string | 
   );
 }
 
+function ResultadoIAPanel({
+  avaliacao,
+  status,
+  error,
+}: {
+  avaliacao: Avaliacao | null;
+  status: 'idle' | 'processing' | 'completed' | 'error';
+  error: string | null;
+}) {
+  const hasResult = Boolean(
+    avaliacao?.transcricao ||
+    avaliacao?.nivel_sugerido ||
+    avaliacao?.precisao != null ||
+    avaliacao?.fluencia != null,
+  );
+
+  if (!hasResult && status === 'idle' && !error) {
+    return null;
+  }
+
+  return (
+    <RNView style={styles.analysisPanel}>
+      <Text style={styles.analysisTitle}>Resultado preliminar da IA</Text>
+      {status === 'processing' ? (
+        <Text style={styles.analysisHint}>Analisando áudio em segundo plano...</Text>
+      ) : null}
+      {error ? <Text style={styles.analysisError}>{error}</Text> : null}
+      {hasResult ? (
+        <>
+          {avaliacao?.nivel_sugerido ? (
+            <Text style={styles.analysisLine}>Nível sugerido: {avaliacao.nivel_sugerido}</Text>
+          ) : null}
+          {avaliacao?.nivel_final ? (
+            <Text style={styles.analysisLine}>Nível confirmado: {avaliacao.nivel_final}</Text>
+          ) : null}
+          {avaliacao?.precisao != null ? (
+            <Text style={styles.analysisLine}>Precisão: {Math.round(avaliacao.precisao)}%</Text>
+          ) : null}
+          {avaliacao?.fluencia != null ? (
+            <Text style={styles.analysisLine}>
+              Fluência: {Math.round(avaliacao.fluencia)} palavras/min
+            </Text>
+          ) : null}
+          {avaliacao?.omissoes != null || avaliacao?.substituicoes != null ? (
+            <Text style={styles.analysisLine}>
+              Omissões: {avaliacao.omissoes ?? 0} · Substituições: {avaliacao.substituicoes ?? 0}
+            </Text>
+          ) : null}
+          {avaliacao?.transcricao ? (
+            <Text style={styles.analysisTranscription} numberOfLines={4}>
+              Transcrição: {avaliacao.transcricao}
+            </Text>
+          ) : null}
+          {avaliacao?.justificativa_ia ? (
+            <Text style={styles.analysisJustification} numberOfLines={4}>
+              Justificativa: {avaliacao.justificativa_ia}
+            </Text>
+          ) : null}
+        </>
+      ) : null}
+    </RNView>
+  );
+}
+
 export default function AvaliarTurmaScreen() {
-  const { id, sondagemId } = useLocalSearchParams<{ id: string; sondagemId: string }>();
+  const params = useLocalSearchParams<{ id: string | string[]; sondagemId: string | string[] }>();
+  const turmaId = Array.isArray(params.id) ? params.id[0] : params.id;
+  const activeSondagemId = Array.isArray(params.sondagemId)
+    ? params.sondagemId[0]
+    : params.sondagemId;
 
   const [turma, setTurma] = useState<Turma | null>(null);
   const [sondagem, setSondagem] = useState<Sondagem | null>(null);
@@ -36,17 +123,30 @@ export default function AvaliarTurmaScreen() {
   const [avaliacaoIdsByAluno, setAvaliacaoIdsByAluno] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [pendingRecording, setPendingRecording] = useState<PendingAudioRecording | null>(null);
+  const [existingAudioPath, setExistingAudioPath] = useState<string | null>(null);
+  const [avaliacaoAtual, setAvaliacaoAtual] = useState<Avaliacao | null>(null);
+  const [iaStatus, setIaStatus] = useState<'idle' | 'processing' | 'completed' | 'error'>('idle');
+  const [iaError, setIaError] = useState<string | null>(null);
+  const [nivelFinalSelecionado, setNivelFinalSelecionado] = useState<NivelLeitura | null>(null);
+  const [observacaoProfessor, setObservacaoProfessor] = useState('');
+  const alunoAtualIdRef = useRef<string | null>(null);
+
+  const handleRecordingChange = useCallback((recording: PendingAudioRecording | null) => {
+    setPendingRecording(recording);
+  }, []);
 
   const persistSession = useCallback(
     async (index: number, ids: Record<string, string>) => {
-      if (!id || !sondagemId) {
+      if (!turmaId || !activeSondagemId) {
         return;
       }
 
       const sessao: AvaliacaoSessao = {
-        turmaId: id,
-        sondagemId,
+        turmaId,
+        sondagemId: activeSondagemId,
         alunoIndex: index,
         avaliacaoIdsByAluno: ids,
         updatedAt: new Date().toISOString(),
@@ -54,61 +154,235 @@ export default function AvaliarTurmaScreen() {
 
       await saveAvaliacaoSessao(sessao);
     },
-    [id, sondagemId],
+    [turmaId, activeSondagemId],
   );
 
   useEffect(() => {
-    if (!id || !sondagemId) {
+    if (!turmaId || !activeSondagemId) {
+      setLoadError('Parâmetros da avaliação inválidos.');
+      setIsLoading(false);
       return;
     }
 
     setIsLoading(true);
-    setError(null);
+    setLoadError(null);
+    setSaveError(null);
 
     Promise.all([
-      getTurma(id),
-      getSondagem(sondagemId),
-      listAlunosByTurma(id),
-      loadAvaliacaoSessao(id, sondagemId),
+      getTurma(turmaId),
+      getSondagem(activeSondagemId),
+      listAlunosByTurma(turmaId),
+      loadAvaliacaoSessao(turmaId, activeSondagemId),
     ])
       .then(([turmaData, sondagemData, alunosData, sessao]) => {
         if (!turmaData || !sondagemData) {
-          setError('Turma ou sondagem não encontrada.');
+          setLoadError('Turma ou sondagem não encontrada.');
           return;
         }
 
         if (alunosData.length === 0) {
-          setError('Esta turma não possui alunos para avaliar.');
+          setLoadError('Esta turma não possui alunos para avaliar.');
         }
 
         setTurma(turmaData);
         setSondagem(sondagemData);
         setAlunos(alunosData);
 
-        if (sessao && sessao.turmaId === id && sessao.sondagemId === sondagemId) {
+        if (sessao && sessao.turmaId === turmaId && sessao.sondagemId === activeSondagemId) {
           const maxIndex = Math.max(0, alunosData.length - 1);
           setAlunoIndex(Math.min(sessao.alunoIndex, maxIndex));
           setAvaliacaoIdsByAluno(sessao.avaliacaoIdsByAluno);
         }
       })
-      .catch(() => setError('Não foi possível iniciar a avaliação.'))
+      .catch(() => setLoadError('Não foi possível iniciar a avaliação.'))
       .finally(() => setIsLoading(false));
-  }, [id, sondagemId]);
+  }, [turmaId, activeSondagemId]);
 
   const alunoAtual = alunos[alunoIndex];
+  const niveisLeitura = useMemo(
+    () => getNiveisLeituraList(turma?.ano_escolar ?? 3),
+    [turma?.ano_escolar],
+  );
+
+  useEffect(() => {
+    alunoAtualIdRef.current = alunoAtual?.id ?? null;
+  }, [alunoAtual?.id]);
+
+  useEffect(() => {
+    if (!alunoAtual || !activeSondagemId) {
+      setExistingAudioPath(null);
+      setPendingRecording(null);
+      setAvaliacaoAtual(null);
+      setNivelFinalSelecionado(null);
+      setObservacaoProfessor('');
+      setIaStatus('idle');
+      setIaError(null);
+      return;
+    }
+
+    setPendingRecording(null);
+    setIaStatus('idle');
+    setIaError(null);
+    getAvaliacaoByAlunoAndSondagem(alunoAtual.id, activeSondagemId)
+      .then((avaliacao) => {
+        setAvaliacaoAtual(avaliacao);
+        setNivelFinalSelecionado(avaliacao?.nivel_final ?? avaliacao?.nivel_sugerido ?? null);
+        setObservacaoProfessor(avaliacao?.observacao_professor ?? '');
+        setExistingAudioPath(avaliacao?.audio_url ?? null);
+      })
+      .catch(() => {
+        setAvaliacaoAtual(null);
+        setNivelFinalSelecionado(null);
+        setObservacaoProfessor('');
+        setExistingAudioPath(null);
+      });
+  }, [alunoAtual, activeSondagemId]);
   const totalAlunos = alunos.length;
   const isUltimoAluno = alunoIndex >= totalAlunos - 1;
   const isPrimeiroAluno = alunoIndex === 0;
 
-  async function salvarAlunoAtual(): Promise<Record<string, string>> {
-    if (!alunoAtual || !sondagemId) {
+  async function executarAnaliseIA(params: {
+    avaliacaoId: string;
+    audioPath: string;
+    durationMillis: number;
+    alunoId: string;
+  }): Promise<Avaliacao | null> {
+    setIaStatus('processing');
+    setIaError(null);
+
+    try {
+      const avaliacao = await analisarAvaliacaoComIA({
+        avaliacaoId: params.avaliacaoId,
+        audioPath: params.audioPath,
+        tempoTotalSegundos: Math.max(1, Math.round(params.durationMillis / 1000)),
+      });
+
+      if (alunoAtualIdRef.current === params.alunoId) {
+        setAvaliacaoAtual(avaliacao);
+        setIaStatus('completed');
+      }
+
+      return avaliacao;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Erro desconhecido na análise por IA.';
+      if (alunoAtualIdRef.current === params.alunoId) {
+        setIaStatus('error');
+        setIaError(`Áudio salvo, mas a análise por IA não foi concluída: ${message}`);
+      }
+
+      return null;
+    }
+  }
+
+  function dispararAnaliseIA(params: {
+    avaliacaoId: string;
+    audioPath: string;
+    durationMillis: number;
+    alunoId: string;
+  }) {
+    void executarAnaliseIA(params);
+  }
+
+  async function salvarAlunoAtual(
+    options: { aguardarAnalise?: boolean } = {},
+  ): Promise<Record<string, string>> {
+    if (!alunoAtual || !activeSondagemId || !turma || !sondagem) {
       return avaliacaoIdsByAluno;
     }
 
-    const avaliacao = await ensureAvaliacaoBasica(alunoAtual.id, sondagemId);
+    const avaliacao = await ensureAvaliacaoBasica(alunoAtual.id, activeSondagemId);
+    let nextAvaliacao = avaliacao;
+
+    if (pendingRecording) {
+      const ano = sondagem.ano ?? new Date().getFullYear();
+      const mes = sondagem.mes ?? new Date().getMonth() + 1;
+
+      const audioPath = await salvarAudioAvaliacao({
+        avaliacaoId: avaliacao.id,
+        recording: pendingRecording,
+        ano,
+        mes,
+        escolaId: turma.escola_id,
+        turmaId: turma.id,
+        alunoId: alunoAtual.id,
+      });
+
+      setExistingAudioPath(audioPath);
+      setPendingRecording(null);
+      nextAvaliacao = { ...avaliacao, audio_url: audioPath };
+      const analiseParams = {
+        avaliacaoId: avaliacao.id,
+        audioPath,
+        durationMillis: pendingRecording.durationMillis,
+        alunoId: alunoAtual.id,
+      };
+
+      if (options.aguardarAnalise) {
+        nextAvaliacao = (await executarAnaliseIA(analiseParams)) ?? nextAvaliacao;
+      } else {
+        dispararAnaliseIA(analiseParams);
+      }
+    }
+
     const nextIds = { ...avaliacaoIdsByAluno, [alunoAtual.id]: avaliacao.id };
+    setAvaliacaoAtual(nextAvaliacao);
     setAvaliacaoIdsByAluno(nextIds);
     return nextIds;
+  }
+
+  async function handleAnalisarGravacao() {
+    if (isSaving || !alunoAtual) {
+      return;
+    }
+
+    setIsSaving(true);
+    setSaveError(null);
+
+    try {
+      if (pendingRecording) {
+        const ids = await salvarAlunoAtual({ aguardarAnalise: true });
+        await persistSession(alunoIndex, ids);
+        return;
+      }
+
+      if (avaliacaoAtual?.id && existingAudioPath) {
+        await executarAnaliseIA({
+          avaliacaoId: avaliacaoAtual.id,
+          audioPath: existingAudioPath,
+          durationMillis: 60000,
+          alunoId: alunoAtual.id,
+        });
+      }
+    } catch (err) {
+      const { message, code } = getSupabaseErrorDetails(err);
+      setSaveError(translateSupabaseError(message, code));
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function handleConfirmarClassificacao() {
+    if (isSaving || !avaliacaoAtual?.id || !nivelFinalSelecionado) {
+      return;
+    }
+
+    setIsSaving(true);
+    setSaveError(null);
+
+    try {
+      const avaliacao = await validarAvaliacao({
+        avaliacaoId: avaliacaoAtual.id,
+        nivelFinal: nivelFinalSelecionado,
+        observacao: observacaoProfessor.trim() || undefined,
+      });
+      setAvaliacaoAtual(avaliacao);
+      Alert.alert('Classificação salva', 'O resultado do professor foi registrado no histórico.');
+    } catch (err) {
+      const { message, code } = getSupabaseErrorDetails(err);
+      setSaveError(translateSupabaseError(message, code));
+    } finally {
+      setIsSaving(false);
+    }
   }
 
   async function handleVoltarAluno() {
@@ -127,43 +401,46 @@ export default function AvaliarTurmaScreen() {
     }
 
     setIsSaving(true);
-    setError(null);
+    setSaveError(null);
 
     try {
       const ids = await salvarAlunoAtual();
       const nextIndex = alunoIndex + 1;
       setAlunoIndex(nextIndex);
       await persistSession(nextIndex, ids);
-    } catch {
-      setError('Não foi possível salvar o progresso deste aluno.');
+    } catch (err) {
+      const { message, code } = getSupabaseErrorDetails(err);
+      setSaveError(translateSupabaseError(message, code));
     } finally {
       setIsSaving(false);
     }
   }
 
   async function handleFinalizar() {
-    if (isSaving || !id || !sondagemId) {
+    if (isSaving || !turmaId || !activeSondagemId) {
       return;
     }
 
     setIsSaving(true);
-    setError(null);
+    setSaveError(null);
 
     try {
       if (alunoAtual) {
         await salvarAlunoAtual();
       }
 
-      await clearAvaliacaoSessao(id, sondagemId);
+      await clearAvaliacaoSessao(turmaId, activeSondagemId);
 
       Alert.alert('Sondagem concluída', 'A avaliação da turma foi registrada com sucesso.', [
         {
-          text: 'OK',
-          onPress: () => router.replace({ pathname: '/turmas/[id]', params: { id } }),
+          text: 'Ver consolidado',
+          onPress: () =>
+            router.replace({ pathname: '/turmas/[id]/consolidado', params: { id: turmaId } }),
         },
       ]);
-    } catch {
-      setError('Não foi possível finalizar a sondagem.');
+    } catch (err) {
+      const { message, code } = getSupabaseErrorDetails(err);
+      setSaveError(translateSupabaseError(message, code));
       setIsSaving(false);
     }
   }
@@ -177,17 +454,17 @@ export default function AvaliarTurmaScreen() {
     );
   }
 
-  if (error || !turma || !sondagem || !alunoAtual) {
+  if (loadError || !turma || !sondagem || !alunoAtual) {
     return (
       <View style={styles.centered}>
         <Text style={styles.title}>Avaliação</Text>
         <Text style={styles.error}>
-          {error ?? (totalAlunos === 0 ? 'Nenhum aluno nesta turma.' : 'Dados indisponíveis.')}
+          {loadError ?? (totalAlunos === 0 ? 'Nenhum aluno nesta turma.' : 'Dados indisponíveis.')}
         </Text>
-        {id ? (
+        {turmaId ? (
           <Pressable
             style={styles.secondaryButton}
-            onPress={() => router.replace({ pathname: '/turmas/[id]', params: { id } })}
+            onPress={() => router.replace({ pathname: '/turmas/[id]', params: { id: turmaId } })}
           >
             <Text style={styles.secondaryButtonText}>Voltar para turma</Text>
           </Pressable>
@@ -210,11 +487,100 @@ export default function AvaliarTurmaScreen() {
       <SondagemSection title="Frase" content={sondagem.frase} />
       <SondagemSection title="Texto" content={sondagem.texto} />
 
+      <AudioRecorderPanel
+        key={alunoAtual.id}
+        disabled={isSaving}
+        existingAudioPath={existingAudioPath}
+        onRecordingChange={handleRecordingChange}
+      />
+
+      {pendingRecording ? (
+        <Text style={styles.analysisHintText}>
+          A análise será iniciada automaticamente ao avançar ou finalizar.
+        </Text>
+      ) : null}
+
+      {!pendingRecording &&
+      existingAudioPath &&
+      !avaliacaoAtual?.transcricao &&
+      iaStatus !== 'processing' ? (
+        <Pressable
+          disabled={isSaving}
+          style={[styles.analysisButton, isSaving && styles.buttonDisabled]}
+          onPress={handleAnalisarGravacao}
+        >
+          {isSaving ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <Text style={styles.primaryButtonText}>Tentar análise novamente</Text>
+          )}
+        </Pressable>
+      ) : null}
+
+      <ResultadoIAPanel avaliacao={avaliacaoAtual} status={iaStatus} error={iaError} />
+
+      {avaliacaoAtual?.id ? (
+        <RNView style={styles.validationPanel}>
+          <Text style={styles.analysisTitle}>Classificação do professor</Text>
+          <Text style={styles.analysisLine}>
+            Confirme a sugestão da IA ou selecione outro nível conforme sua observação.
+          </Text>
+
+          <RNView style={styles.levelOptions}>
+            {niveisLeitura.map((nivel) => (
+              <Pressable
+                key={nivel}
+                disabled={isSaving}
+                style={[
+                  styles.levelOption,
+                  nivelFinalSelecionado === nivel && styles.levelOptionSelected,
+                  isSaving && styles.buttonDisabled,
+                ]}
+                onPress={() => setNivelFinalSelecionado(nivel)}
+              >
+                <Text
+                  style={[
+                    styles.levelOptionText,
+                    nivelFinalSelecionado === nivel && styles.levelOptionTextSelected,
+                  ]}
+                >
+                  {nivel}
+                </Text>
+              </Pressable>
+            ))}
+          </RNView>
+
+          <TextInput
+            editable={!isSaving}
+            multiline
+            placeholder="Observação pedagógica (opcional)"
+            style={styles.observationInput}
+            value={observacaoProfessor}
+            onChangeText={setObservacaoProfessor}
+          />
+
+          <Pressable
+            disabled={isSaving || !nivelFinalSelecionado}
+            style={[
+              styles.primaryButton,
+              (isSaving || !nivelFinalSelecionado) && styles.buttonDisabled,
+            ]}
+            onPress={handleConfirmarClassificacao}
+          >
+            {isSaving ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={styles.primaryButtonText}>Confirmar classificação</Text>
+            )}
+          </Pressable>
+        </RNView>
+      ) : null}
+
       {avaliacaoIdsByAluno[alunoAtual.id] ? (
         <Text style={styles.savedHint}>Progresso deste aluno já salvo nesta sondagem.</Text>
       ) : null}
 
-      {error ? <Text style={styles.error}>{error}</Text> : null}
+      {saveError ? <Text style={styles.error}>{saveError}</Text> : null}
 
       <RNView style={styles.actions}>
         <Pressable
@@ -234,7 +600,7 @@ export default function AvaliarTurmaScreen() {
             {isSaving ? (
               <ActivityIndicator color="#fff" />
             ) : (
-              <Text style={styles.primaryButtonText}>Próximo aluno</Text>
+              <Text style={styles.primaryButtonText}>Salvar e próximo aluno</Text>
             )}
           </Pressable>
         ) : (
@@ -246,7 +612,7 @@ export default function AvaliarTurmaScreen() {
             {isSaving ? (
               <ActivityIndicator color="#fff" />
             ) : (
-              <Text style={styles.primaryButtonText}>Finalizar</Text>
+              <Text style={styles.primaryButtonText}>Salvar e finalizar</Text>
             )}
           </Pressable>
         )}
@@ -301,6 +667,97 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 24,
     opacity: 0.9,
+  },
+  analysisPanel: {
+    borderWidth: 1,
+    borderColor: '#D6DEE6',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 18,
+    backgroundColor: '#F8FAFC',
+    gap: 8,
+  },
+  analysisTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  analysisHint: {
+    fontSize: 14,
+    color: '#1B6CA8',
+  },
+  analysisHintText: {
+    fontSize: 14,
+    color: '#1B6CA8',
+    marginBottom: 18,
+  },
+  analysisLine: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: '#1F2937',
+  },
+  analysisTranscription: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: '#374151',
+  },
+  analysisJustification: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: '#374151',
+    fontWeight: '600',
+  },
+  analysisError: {
+    color: '#B00020',
+    fontSize: 14,
+  },
+  analysisButton: {
+    backgroundColor: '#1B6CA8',
+    borderRadius: 10,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginBottom: 18,
+  },
+  validationPanel: {
+    borderWidth: 1,
+    borderColor: '#D6DEE6',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 18,
+    backgroundColor: '#fff',
+    gap: 12,
+  },
+  levelOptions: {
+    gap: 8,
+  },
+  levelOption: {
+    borderWidth: 1,
+    borderColor: '#D6DEE6',
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    backgroundColor: '#fff',
+  },
+  levelOptionSelected: {
+    borderColor: '#1B6CA8',
+    backgroundColor: '#E8EEF3',
+  },
+  levelOptionText: {
+    color: '#1F2937',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  levelOptionTextSelected: {
+    color: '#1B6CA8',
+  },
+  observationInput: {
+    minHeight: 84,
+    borderWidth: 1,
+    borderColor: '#D6DEE6',
+    borderRadius: 10,
+    padding: 12,
+    textAlignVertical: 'top',
+    backgroundColor: '#fff',
+    color: '#1F2937',
   },
   savedHint: {
     fontSize: 14,

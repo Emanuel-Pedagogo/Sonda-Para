@@ -38,10 +38,26 @@ export async function validarAvaliacao(params: {
   nivelFinal: NivelLeitura;
   observacao?: string;
 }): Promise<Avaliacao> {
-  return updateAvaliacao(params.avaliacaoId, {
+  const avaliacao = await updateAvaliacao(params.avaliacaoId, {
     nivel_final: params.nivelFinal,
     observacao_professor: params.observacao ?? null,
   });
+
+  const { error } = await supabase.from('historico_niveis').upsert(
+    {
+      aluno_id: avaliacao.aluno_id,
+      avaliacao_id: avaliacao.id,
+      nivel: params.nivelFinal,
+      data_avaliacao: new Date().toISOString().slice(0, 10),
+    },
+    { onConflict: 'avaliacao_id' },
+  );
+
+  if (error) {
+    throw error;
+  }
+
+  return avaliacao;
 }
 
 export async function listHistoricoByAluno(alunoId: string): Promise<HistoricoNivel[]> {
@@ -50,6 +66,38 @@ export async function listHistoricoByAluno(alunoId: string): Promise<HistoricoNi
     .select('*')
     .eq('aluno_id', alunoId)
     .order('data_avaliacao', { ascending: false });
+
+  if (error) {
+    throw error;
+  }
+
+  return data ?? [];
+}
+
+export async function listAvaliacoesByAluno(alunoId: string): Promise<Avaliacao[]> {
+  const { data, error } = await supabase
+    .from('avaliacoes')
+    .select('*')
+    .eq('aluno_id', alunoId)
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    throw error;
+  }
+
+  return data ?? [];
+}
+
+export async function listAvaliacoesByAlunos(alunoIds: string[]): Promise<Avaliacao[]> {
+  if (alunoIds.length === 0) {
+    return [];
+  }
+
+  const { data, error } = await supabase
+    .from('avaliacoes')
+    .select('*')
+    .in('aluno_id', alunoIds)
+    .order('created_at', { ascending: false });
 
   if (error) {
     throw error;
@@ -85,7 +133,7 @@ export async function ensureAvaliacaoBasica(
     return existing;
   }
 
-  return createAvaliacao({
+  const payload: AvaliacaoInsert = {
     aluno_id: alunoId,
     sondagem_id: sondagemId,
     audio_url: null,
@@ -96,7 +144,27 @@ export async function ensureAvaliacaoBasica(
     fluencia: null,
     confianca_ia: null,
     nivel_sugerido: null,
+    justificativa_ia: null,
     nivel_final: null,
     observacao_professor: null,
-  });
+  };
+
+  const { data, error } = await supabase
+    .from('avaliacoes')
+    .upsert(payload, { onConflict: 'aluno_id,sondagem_id' })
+    .select()
+    .single();
+
+  if (error) {
+    if (error.code === '23505') {
+      const retry = await getAvaliacaoByAlunoAndSondagem(alunoId, sondagemId);
+      if (retry) {
+        return retry;
+      }
+    }
+
+    throw error;
+  }
+
+  return data;
 }

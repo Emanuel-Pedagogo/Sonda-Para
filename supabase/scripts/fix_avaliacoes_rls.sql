@@ -1,4 +1,7 @@
--- Fase 4: Avaliações — professores podem registrar avaliações dos alunos da escola
+-- Corrige/reaplica RLS de escrita em avaliacoes (seguro para rodar mais de uma vez)
+
+drop policy if exists "Usuarios criam avaliacoes dos alunos da escola" on public.avaliacoes;
+drop policy if exists "Usuarios atualizam avaliacoes dos alunos da escola" on public.avaliacoes;
 
 create policy "Usuarios criam avaliacoes dos alunos da escola"
   on public.avaliacoes
