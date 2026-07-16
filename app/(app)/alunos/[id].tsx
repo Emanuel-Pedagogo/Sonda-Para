@@ -4,13 +4,29 @@ import { ActivityIndicator, FlatList, Pressable, StyleSheet } from 'react-native
 
 import { Text, View } from '@/components/Themed';
 import { getAluno } from '@/src/services/alunos/alunos.service';
-import { listHistoricoByAluno } from '@/src/services/avaliacoes/avaliacoes.service';
-import type { Aluno, HistoricoNivel } from '@/src/types/database';
+import { listAvaliacoesByAluno } from '@/src/services/avaliacoes/avaliacoes.service';
+import type { Aluno, Avaliacao } from '@/src/types/database';
+
+function getNivelAvaliacao(avaliacao: Avaliacao): string {
+  return avaliacao.nivel_final ?? avaliacao.nivel_sugerido ?? 'Nível não informado';
+}
+
+function formatPercent(value: number | null): string {
+  return value == null ? 'Sem dado' : `${Math.round(value)}%`;
+}
+
+function formatPpm(value: number | null): string {
+  return value == null ? 'Sem dado' : `${Math.round(value)} ppm`;
+}
+
+function formatDate(value: string): string {
+  return new Date(value).toLocaleDateString('pt-BR');
+}
 
 export default function AlunoProfileScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const [aluno, setAluno] = useState<Aluno | null>(null);
-  const [historico, setHistorico] = useState<HistoricoNivel[]>([]);
+  const [avaliacoes, setAvaliacoes] = useState<Avaliacao[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -22,10 +38,10 @@ export default function AlunoProfileScreen() {
     setIsLoading(true);
     setError(null);
 
-    Promise.all([getAluno(id), listHistoricoByAluno(id)])
-      .then(([alunoData, historicoData]) => {
+    Promise.all([getAluno(id), listAvaliacoesByAluno(id)])
+      .then(([alunoData, avaliacoesData]) => {
         setAluno(alunoData);
-        setHistorico(historicoData);
+        setAvaliacoes(avaliacoesData);
       })
       .catch(() => setError('Não foi possível carregar o aluno.'))
       .finally(() => setIsLoading(false));
@@ -49,10 +65,60 @@ export default function AlunoProfileScreen() {
     );
   }
 
+  const avaliacoesComAnalise = avaliacoes.filter(
+    (avaliacao) =>
+      avaliacao.nivel_final ||
+      avaliacao.nivel_sugerido ||
+      avaliacao.precisao != null ||
+      avaliacao.fluencia != null,
+  );
+  const ultimaAvaliacao = avaliacoesComAnalise[0] ?? null;
+  const avaliacoesCronologicas = [...avaliacoesComAnalise].reverse();
+  const primeiraAvaliacao = avaliacoesCronologicas[0] ?? null;
+  const precisaoMedia =
+    avaliacoesComAnalise.length === 0
+      ? null
+      : avaliacoesComAnalise.reduce((total, item) => total + (item.precisao ?? 0), 0) /
+        avaliacoesComAnalise.length;
+  const fluenciaMedia =
+    avaliacoesComAnalise.length === 0
+      ? null
+      : avaliacoesComAnalise.reduce((total, item) => total + (item.fluencia ?? 0), 0) /
+        avaliacoesComAnalise.length;
+  const variacaoPrecisao =
+    primeiraAvaliacao?.precisao != null && ultimaAvaliacao?.precisao != null
+      ? ultimaAvaliacao.precisao - primeiraAvaliacao.precisao
+      : null;
+
   return (
     <View style={styles.container}>
       <Text style={styles.title}>{aluno.nome}</Text>
       <Text style={styles.subtitle}>Perfil do aluno e histórico de níveis leitores.</Text>
+
+      <View style={styles.summaryGrid}>
+        <View style={styles.summaryCard} lightColor="#fff">
+          <Text style={styles.summaryLabel}>Último nível</Text>
+          <Text style={styles.summaryValue}>
+            {ultimaAvaliacao ? getNivelAvaliacao(ultimaAvaliacao) : 'Sem avaliação'}
+          </Text>
+        </View>
+        <View style={styles.summaryCard} lightColor="#fff">
+          <Text style={styles.summaryLabel}>Precisão média</Text>
+          <Text style={styles.summaryValue}>{formatPercent(precisaoMedia)}</Text>
+        </View>
+        <View style={styles.summaryCard} lightColor="#fff">
+          <Text style={styles.summaryLabel}>Fluência média</Text>
+          <Text style={styles.summaryValue}>{formatPpm(fluenciaMedia)}</Text>
+        </View>
+        <View style={styles.summaryCard} lightColor="#fff">
+          <Text style={styles.summaryLabel}>Evolução</Text>
+          <Text style={styles.summaryValue}>
+            {variacaoPrecisao == null
+              ? 'Sem dado'
+              : `${variacaoPrecisao >= 0 ? '+' : ''}${Math.round(variacaoPrecisao)} p.p.`}
+          </Text>
+        </View>
+      </View>
 
       <Pressable
         style={styles.primaryButton}
@@ -66,23 +132,26 @@ export default function AlunoProfileScreen() {
       <Text style={styles.sectionTitle}>Histórico</Text>
 
       <FlatList
-        contentContainerStyle={historico.length === 0 ? styles.emptyList : styles.list}
-        data={historico}
+        contentContainerStyle={avaliacoesComAnalise.length === 0 ? styles.emptyList : styles.list}
+        data={avaliacoesComAnalise}
         keyExtractor={(item) => item.id}
         ListEmptyComponent={
           <Text style={styles.muted}>
-            Este aluno ainda não possui histórico de avaliação. O histórico será preenchido após a
-            validação docente.
+            Este aluno ainda não possui avaliações analisadas. O histórico será preenchido após a
+            análise por IA ou validação docente.
           </Text>
         }
         renderItem={({ item }) => (
           <View style={styles.card} lightColor="#fff">
-            <Text style={styles.cardTitle}>{item.nivel ?? 'Nível não informado'}</Text>
-            <Text style={styles.cardText}>
-              {item.data_avaliacao
-                ? new Date(`${item.data_avaliacao}T00:00:00`).toLocaleDateString('pt-BR')
-                : 'Data não informada'}
-            </Text>
+            <Text style={styles.cardTitle}>{getNivelAvaliacao(item)}</Text>
+            <Text style={styles.cardText}>{formatDate(item.created_at)}</Text>
+            <Text style={styles.cardText}>Precisão: {formatPercent(item.precisao)}</Text>
+            <Text style={styles.cardText}>Fluência: {formatPpm(item.fluencia)}</Text>
+            {item.transcricao ? (
+              <Text style={styles.transcription} numberOfLines={3}>
+                Transcrição: {item.transcricao}
+              </Text>
+            ) : null}
           </View>
         )}
       />
@@ -110,6 +179,25 @@ const styles = StyleSheet.create({
     fontSize: 15,
     opacity: 0.75,
     marginBottom: 16,
+  },
+  summaryGrid: {
+    gap: 10,
+    marginBottom: 16,
+  },
+  summaryCard: {
+    borderWidth: 1,
+    borderColor: '#D6DEE6',
+    borderRadius: 12,
+    padding: 14,
+  },
+  summaryLabel: {
+    fontSize: 13,
+    opacity: 0.7,
+    marginBottom: 4,
+  },
+  summaryValue: {
+    fontSize: 18,
+    fontWeight: '700',
   },
   sectionTitle: {
     fontSize: 18,
@@ -150,6 +238,13 @@ const styles = StyleSheet.create({
   cardText: {
     fontSize: 14,
     opacity: 0.75,
+    marginBottom: 3,
+  },
+  transcription: {
+    fontSize: 14,
+    lineHeight: 20,
+    opacity: 0.85,
+    marginTop: 6,
   },
   muted: {
     fontSize: 15,
