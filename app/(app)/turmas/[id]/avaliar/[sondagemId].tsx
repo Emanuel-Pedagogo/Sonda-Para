@@ -30,6 +30,8 @@ import {
 import { analisarAvaliacaoComIA } from '@/src/services/ia/avaliacao-ia.service';
 import { getSondagem } from '@/src/services/sondagens/sondagens.service';
 import { getTurma } from '@/src/services/turmas/turmas.service';
+import { registrarEvento } from '@/src/services/telemetria/telemetria.service';
+import { useAuthContext } from '@/src/contexts/AuthContext';
 import { getNiveisLeituraList, type NivelLeitura } from '@/src/constants/niveis-leitura';
 import type { AvaliacaoSessao } from '@/src/types/avaliacao-sessao';
 import type { Aluno, Avaliacao, Sondagem, Turma } from '@/src/types/database';
@@ -115,6 +117,7 @@ export default function AvaliarTurmaScreen() {
   const activeSondagemId = Array.isArray(params.sondagemId)
     ? params.sondagemId[0]
     : params.sondagemId;
+  const { usuario } = useAuthContext();
 
   const [turma, setTurma] = useState<Turma | null>(null);
   const [sondagem, setSondagem] = useState<Sondagem | null>(null);
@@ -193,10 +196,16 @@ export default function AvaliarTurmaScreen() {
           setAlunoIndex(Math.min(sessao.alunoIndex, maxIndex));
           setAvaliacaoIdsByAluno(sessao.avaliacaoIdsByAluno);
         }
+
+        void registrarEvento({
+          usuarioId: usuario?.id,
+          tipoEvento: 'sondagem_iniciada',
+          metadata: { turmaId, sondagemId: activeSondagemId, totalAlunos: alunosData.length },
+        });
       })
       .catch(() => setLoadError('Não foi possível iniciar a avaliação.'))
       .finally(() => setIsLoading(false));
-  }, [turmaId, activeSondagemId]);
+  }, [turmaId, activeSondagemId, usuario?.id]);
 
   const alunoAtual = alunos[alunoIndex];
   const niveisLeitura = useMemo(
@@ -262,6 +271,12 @@ export default function AvaliarTurmaScreen() {
         setIaStatus('completed');
       }
 
+      void registrarEvento({
+        usuarioId: usuario?.id,
+        tipoEvento: 'ia_concluida',
+        metadata: { avaliacaoId: params.avaliacaoId, nivelSugerido: avaliacao.nivel_sugerido },
+      });
+
       return avaliacao;
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Erro desconhecido na análise por IA.';
@@ -269,6 +284,12 @@ export default function AvaliarTurmaScreen() {
         setIaStatus('error');
         setIaError(`Áudio salvo, mas a análise por IA não foi concluída: ${message}`);
       }
+
+      void registrarEvento({
+        usuarioId: usuario?.id,
+        tipoEvento: 'erro_app',
+        metadata: { contexto: 'analise_ia', avaliacaoId: params.avaliacaoId, mensagem: message },
+      });
 
       return null;
     }
@@ -305,6 +326,7 @@ export default function AvaliarTurmaScreen() {
         escolaId: turma.escola_id,
         turmaId: turma.id,
         alunoId: alunoAtual.id,
+        usuarioId: usuario?.id,
       });
 
       setExistingAudioPath(audioPath);
@@ -327,6 +349,13 @@ export default function AvaliarTurmaScreen() {
     const nextIds = { ...avaliacaoIdsByAluno, [alunoAtual.id]: avaliacao.id };
     setAvaliacaoAtual(nextAvaliacao);
     setAvaliacaoIdsByAluno(nextIds);
+
+    void registrarEvento({
+      usuarioId: usuario?.id,
+      tipoEvento: 'avaliacao_salva',
+      metadata: { avaliacaoId: avaliacao.id, comAudio: Boolean(nextAvaliacao.audio_url) },
+    });
+
     return nextIds;
   }
 
@@ -376,6 +405,22 @@ export default function AvaliarTurmaScreen() {
         observacao: observacaoProfessor.trim() || undefined,
       });
       setAvaliacaoAtual(avaliacao);
+
+      if (
+        avaliacaoAtual.nivel_sugerido &&
+        avaliacaoAtual.nivel_sugerido !== nivelFinalSelecionado
+      ) {
+        void registrarEvento({
+          usuarioId: usuario?.id,
+          tipoEvento: 'nivel_alterado_pelo_professor',
+          metadata: {
+            avaliacaoId: avaliacao.id,
+            nivelSugerido: avaliacaoAtual.nivel_sugerido,
+            nivelFinal: nivelFinalSelecionado,
+          },
+        });
+      }
+
       Alert.alert('Classificação salva', 'O resultado do professor foi registrado no histórico.');
     } catch (err) {
       const { message, code } = getSupabaseErrorDetails(err);

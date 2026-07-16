@@ -1,10 +1,17 @@
 import { Platform } from 'react-native';
 
 import { supabase } from '@/src/lib/supabase/client';
+import { registrarEvento } from '@/src/services/telemetria/telemetria.service';
 import type { Usuario } from '@/src/types/database';
 
 export async function signIn(email: string, password: string) {
-  return supabase.auth.signInWithPassword({ email, password });
+  const result = await supabase.auth.signInWithPassword({ email, password });
+
+  if (!result.error && result.data.user) {
+    void registrarEvento({ usuarioId: result.data.user.id, tipoEvento: 'login' });
+  }
+
+  return result;
 }
 
 export async function signOut() {

@@ -78,6 +78,23 @@ export interface LogIA {
   created_at: string;
 }
 
+export type TipoEventoUso =
+  | 'login'
+  | 'sondagem_iniciada'
+  | 'avaliacao_salva'
+  | 'upload_audio_falhou'
+  | 'ia_concluida'
+  | 'nivel_alterado_pelo_professor'
+  | 'erro_app';
+
+export interface EventoUso {
+  id: string;
+  usuario_id: string;
+  tipo_evento: TipoEventoUso;
+  metadata: Record<string, unknown>;
+  created_at: string;
+}
+
 export interface Database {
   public: {
     Tables: {
@@ -127,6 +144,16 @@ export interface Database {
         Row: LogIA;
         Insert: Omit<LogIA, 'id' | 'created_at'> & { id?: string; created_at?: string };
         Update: Partial<LogIA>;
+        Relationships: [];
+      };
+      eventos_uso: {
+        Row: EventoUso;
+        Insert: Omit<EventoUso, 'id' | 'created_at' | 'metadata'> & {
+          id?: string;
+          created_at?: string;
+          metadata?: Record<string, unknown>;
+        };
+        Update: Partial<EventoUso>;
         Relationships: [];
       };
     };
