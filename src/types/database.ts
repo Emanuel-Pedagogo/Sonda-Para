@@ -56,6 +56,7 @@ export interface Avaliacao {
   fluencia: number | null;
   confianca_ia: number | null;
   nivel_sugerido: NivelLeitura | null;
+  justificativa_ia: string | null;
   nivel_final: NivelLeitura | null;
   observacao_professor: string | null;
   created_at: string;
