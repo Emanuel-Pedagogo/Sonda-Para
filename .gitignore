@@ -45,3 +45,6 @@ dist/
 # generated native folders
 /ios
 /android
+
+# Supabase CLI
+supabase/.temp/

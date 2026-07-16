@@ -6,7 +6,7 @@
 
 do $$
 declare
-  target_user_id uuid := 'USER_UUID';
+  target_user_id uuid := '3e37c890-7133-495f-8127-ce4f58a3f64b';
   escola_demo_id uuid;
   turma_1a_id uuid;
   turma_2a_id uuid;

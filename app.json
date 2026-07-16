@@ -35,7 +35,13 @@
           "backgroundColor": "#ffffff"
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Permita que o Sonda Leitura acesse o microfone para gravar a leitura do aluno."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

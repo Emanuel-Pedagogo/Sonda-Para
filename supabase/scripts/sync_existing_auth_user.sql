@@ -10,5 +10,5 @@ select
   email,
   coalesce(raw_user_meta_data ->> 'perfil', 'professor')
 from auth.users
-where id = 'USER_UUID'
+where id = '3e37c890-7133-495f-8127-ce4f58a3f64b'
 on conflict (id) do nothing;
